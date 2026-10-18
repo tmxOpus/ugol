@@ -2,16 +2,6 @@
 'use strict';
 
 const $ = (s) => document.querySelector(s);
-// высота приложения: в установленной версии iOS иногда отдаёт слою страницы
-// меньше экрана — тянем на всю высоту, чтобы внизу не было пустой полосы
-function fitAppHeight() {
-  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
-  const h = standalone ? Math.max(window.innerHeight, screen.height) : window.innerHeight;
-  document.documentElement.style.setProperty('--app-h', h + 'px');
-}
-fitAppHeight();
-window.addEventListener('resize', fitAppHeight);
-window.addEventListener('orientationchange', () => setTimeout(fitAppHeight, 300));
 const SAVE_KEY = 'ugol_save_v2';
 const TIME_SCALE = 3; // реальных секунд на игровую минуту при ×1
 
