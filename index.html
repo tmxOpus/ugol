@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Уголь</title>
+  <meta name="description" content="Детективный симулятор выживания: начальник поезда в зимней тайге.">
+  <meta name="theme-color" content="#14213D">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Уголь">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css?v=18">
+</head>
+<body>
+<div id="app">
+  <header id="hud">
+    <div class="hud-left">
+      <div class="lbl" id="hud-route">ТРАНССИБ · ЗАБАЙКАЛЬЕ</div>
+      <div class="big" id="hud-km">КМ 6620</div>
+      <div class="lbl">ПРОФИЛЬ ПУТИ <b id="hud-grade">—</b></div>
+    </div>
+    <div class="hud-right">
+      <div class="clock" id="hud-clock">21:00:00</div>
+      <div class="hud-rows">
+        <div><span class="lbl">НАРУЖИ</span> <b class="cold" id="hud-temp">−30°</b></div>
+        <div><span class="lbl">УГОЛЬ НА ХОД</span> <b id="hud-coal">—</b></div>
+        <div><span class="lbl">ДО КОНЦА</span> <b id="hud-dest">—</b></div>
+        <div><span class="lbl">СВЯЗЬ</span> <b id="hud-sig">—</b></div>
+      </div>
+    </div>
+  </header>
+
+  <div id="strip"></div>
+
+  <main id="screens">
+    <section class="scr" id="scr-train">
+      <canvas id="train-canvas"></canvas>
+      <div class="scr-head over"><span class="num">01</span> · ПОЕЗД <span id="train-mode-lbl"></span></div>
+      <div class="train-tools">
+        <button class="chip" id="btn-thermal">ТЕПЛОВИЗОР</button>
+        <button class="chip" id="btn-tambour">ТАМБУРЫ: ОТКРЫТЫ</button>
+      </div>
+      <div class="train-forecast" id="train-forecast"></div>
+      <div class="zoom-tools">
+        <button data-z="in" title="Приблизить">+</button>
+        <button data-z="out" title="Отдалить">−</button>
+      </div>
+      <div class="cam-modes zoom-tools">
+        <button data-z="follow" class="mode on" title="Камера на поезде">◎<span>ПОЕЗД</span></button>
+        <button data-z="free" class="mode" title="Свободный осмотр мира">✥<span>ОСМОТР</span></button>
+      </div>
+    </section>
+    <section class="scr" id="scr-car"></section>
+    <section class="scr" id="scr-people"></section>
+    <section class="scr" id="scr-map"></section>
+    <section class="scr" id="scr-notes"></section>
+  </main>
+
+  <div id="controls">
+    <div class="seg" id="time-seg">
+      <button data-mul="0" aria-label="Пауза">❚❚</button>
+      <button data-mul="1">×1</button>
+      <button data-mul="4">×4</button>
+      <button data-mul="16">×16</button>
+    </div>
+    <div class="seg" id="mode-seg">
+      <button data-mode="eco">ЭКО</button>
+      <button data-mode="norm">НОРМА</button>
+      <button data-mode="full">ПОЛНЫЙ</button>
+    </div>
+  </div>
+
+  <nav id="tabs">
+    <button data-tab="train" class="on">ПОЕЗД</button>
+    <button data-tab="car">ВАГОН</button>
+    <button data-tab="people">ЛЮДИ</button>
+    <button data-tab="map">МАРШРУТ</button>
+    <button data-tab="notes">БЛОКНОТ<i id="notes-dot"></i></button>
+  </nav>
+
+  <div id="toasts"></div>
+  <div id="banner"></div>
+  <div id="modal" class="hidden"><div class="sheet" id="sheet"></div></div>
+
+  <div id="title">
+    <canvas id="title-canvas"></canvas>
+    <div class="title-inner">
+      <div class="lbl">ТРАНССИБ · ЗАБАЙКАЛЬЕ</div>
+      <h1>УГОЛЬ</h1>
+      <p class="tagline">Ты — начальник пассажирского поезда. Ночь, тайга, −43°.<br>Считай уголь, грей людей и найди тех, кто ворует.</p>
+      <div class="title-btns">
+        <button class="btn primary" id="btn-continue" hidden>ПРОДОЛЖИТЬ РЕЙС</button>
+        <button class="btn" id="btn-new">НОВЫЙ РЕЙС</button>
+        <button class="btn ghost" id="btn-how">КАК ИГРАТЬ</button>
+      </div>
+      <div class="lbl foot">ДЕЛО №1 · «УГОЛЬ ИЗ ВАГОНА 9»</div>
+      <div class="lbl foot" id="offline-state"></div>
+    </div>
+  </div>
+</div>
+
+<script src="js/world.js?v=18"></script>
+<script src="js/sim.js?v=18"></script>
+<script src="js/gen.js?v=18"></script>
+<script src="js/case.js?v=18"></script>
+<script src="js/audio.js?v=18"></script>
+<script src="js/view.js?v=18"></script>
+<script src="js/ui.js?v=18"></script>
+</body>
+</html>
