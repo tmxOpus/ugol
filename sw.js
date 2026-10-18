@@ -2,7 +2,7 @@
 // При обновлении игры меняй VERSION (скрипт bump.sh делает это сам вместе с index.html).
 'use strict';
 
-const VERSION = '19';
+const VERSION = '20';
 const CACHE = 'ugol-' + VERSION;
 const ASSETS = [
   './',
@@ -39,7 +39,7 @@ self.addEventListener('fetch', (e) => {
   // страница: сначала сеть (чтобы приходили обновления), без сети — из кэша
   if (req.mode === 'navigate') {
     e.respondWith(
-      fetch(req)
+      fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' })
         .then((res) => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put('index.html', copy)); } return res; })
         .catch(() => caches.match('index.html').then((r) => r || caches.match('./'))),
     );
