@@ -36,19 +36,158 @@ function fmtH(h) {
   return Math.floor(h) + ' Ч';
 }
 function fmtKg(kg) { return kg >= 1000 ? (kg / 1000).toFixed(1).replace('.', ',') + ' Т' : Math.round(kg) + ' КГ'; }
-function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function gradeText(g) { return g > 0 ? `ПОДЪЁМ ${g}‰` : g < 0 ? `СПУСК ${-g}‰` : 'ПЛОЩАДКА'; }
 
-// ---------- сохранение ----------
-function save() { try { if (S && !S.ended) localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* приватный режим */ } }
-function loadSave() {
+// ---------- сохранение и защита данных ----------
+// Сохранение лежит в localStorage в «конверте» с контрольной суммой.
+// Перед перезаписью предыдущая целая копия уходит в резервный слот.
+// При загрузке и импорте данные проверяются и очищаются: битый или чужой файл
+// не ломает игру и не может внедрить разметку на страницу.
+const SAVE_FORMAT = 'ugol-save';
+const BAK_KEY = SAVE_KEY + '_bak';
+const MAX_SAVE_BYTES = 3 * 1024 * 1024;
+let lastBackupAt = 0;
+let saveWarned = false;
+
+function checksum(str) {
+  // FNV-1a, 32 бита — ловит повреждение данных
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+function wrapSave(state) {
+  const data = JSON.stringify(state, (k, v) => (k === '_saved' ? undefined : v));
+  return JSON.stringify({ format: SAVE_FORMAT, v: 2, at: Date.now(), sum: checksum(data), data });
+}
+// очистка: только простые типы, строки без угловых скобок, разумные размеры
+function sanitize(v, depth = 0) {
+  if (depth > 12) throw new Error('глубина');
+  if (v === null || typeof v === 'boolean') return v;
+  if (typeof v === 'number') { if (!Number.isFinite(v)) throw new Error('число'); return v; }
+  if (typeof v === 'string') return v.replace(/[<>]/g, '').slice(0, 4000);
+  if (Array.isArray(v)) { if (v.length > 5000) throw new Error('массив'); return v.map((x) => sanitize(x, depth + 1)); }
+  if (typeof v === 'object') {
+    const out = {};
+    const keys = Object.keys(v);
+    if (keys.length > 5000) throw new Error('объект');
+    for (const k of keys) { if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue; out[k] = sanitize(v[k], depth + 1); }
+    return out;
+  }
+  throw new Error('тип');
+}
+function validState(st) {
+  return st && typeof st === 'object' && st.v === 2 && Number.isFinite(st.t) && Number.isFinite(st.wseed) &&
+    Array.isArray(st.people) && st.people.length > 0 && st.people.length < 500 &&
+    Array.isArray(st.cars) && st.cars.length === CAR_COUNT && Array.isArray(st.records) && Array.isArray(st.route) &&
+    st.pos && Number.isFinite(st.pos.e) && Number.isFinite(st.pos.d) && st.people.every((p) => p && typeof p.id === 'string' && typeof p.last === 'string' && p.look);
+}
+// разобрать конверт (или старый формат без конверта) → состояние или null
+function unwrapSave(raw, strict) {
+  if (!raw || raw.length > MAX_SAVE_BYTES) return { err: 'файл слишком большой или пустой' };
+  let env;
+  try { env = JSON.parse(raw); } catch (e) { return { err: 'это не файл сохранения' }; }
+  let state;
+  if (env && env.format === SAVE_FORMAT && typeof env.data === 'string') {
+    if (checksum(env.data) !== env.sum) return { err: 'файл повреждён или изменён вручную' };
+    try { state = JSON.parse(env.data); } catch (e) { return { err: 'данные внутри файла повреждены' }; }
+  } else if (!strict && env && env.v === 2) state = env; // старое сохранение без конверта
+  else return { err: 'это не сохранение «Угля»' };
+  try { state = sanitize(state); } catch (e) { return { err: 'недопустимые данные (' + e.message + ')' }; }
+  if (!validState(state)) return { err: 'сохранение не подходит к этой версии игры' };
+  state.events = []; // события не переносятся
+  return { state, at: env.at || null };
+}
+
+function save() {
+  if (!S || S.ended) return;
   try {
-    const s = JSON.parse(localStorage.getItem(SAVE_KEY));
-    if (s && s.v === 2 && !s.ended) return s;
-  } catch (e) { /* нет сохранения */ }
+    const now = Date.now();
+    // раз в минуту предыдущая целая копия становится резервной
+    if (now - lastBackupAt > 60000) {
+      const prev = localStorage.getItem(SAVE_KEY);
+      if (prev && unwrapSave(prev).state) localStorage.setItem(BAK_KEY, prev);
+      lastBackupAt = now;
+    }
+    localStorage.setItem(SAVE_KEY, wrapSave(S));
+  } catch (e) {
+    if (!saveWarned) { saveWarned = true; toast('Не удалось сохранить рейс: нет места или хранилище недоступно. Скачай копию в меню.', 'СОХРАНЕНИЕ', true); }
+  }
+}
+function loadSave() {
+  for (const key of [SAVE_KEY, BAK_KEY]) {
+    let raw = null;
+    try { raw = localStorage.getItem(key); } catch (e) { return null; }
+    if (!raw) continue;
+    const r = unwrapSave(raw);
+    if (r.state && !r.state.ended) {
+      if (key === BAK_KEY) r.restored = true;
+      return r;
+    }
+  }
   return null;
 }
-function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* */ } }
+function clearSave() { try { localStorage.removeItem(SAVE_KEY); localStorage.removeItem(BAK_KEY); } catch (e) { /* */ } }
+
+function exportSave() {
+  if (S && !S.ended) save();
+  let raw = null;
+  try { raw = S && !S.ended ? wrapSave(S) : localStorage.getItem(SAVE_KEY); } catch (e) { /* */ }
+  if (!raw) { toast('Нечего сохранять — рейс не начат.', 'СОХРАНЕНИЕ'); return; }
+  const d = new Date();
+  const name = `ugol-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.json`;
+  const file = new File([raw], name, { type: 'application/json' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ files: [file], title: 'Сохранение «Уголь»' }).catch(() => {});
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  toast(`Копия сохранена: ${name}`, 'СОХРАНЕНИЕ');
+}
+function importSave(file) {
+  if (!file) return;
+  if (file.size > MAX_SAVE_BYTES) { toast('Файл слишком большой для сохранения.', 'СОХРАНЕНИЕ', true); return; }
+  const fr = new FileReader();
+  fr.onload = () => {
+    const r = unwrapSave(String(fr.result), true);
+    if (!r.state) { toast('Не загружено: ' + r.err + '.', 'СОХРАНЕНИЕ', true); return; }
+    if (r.state.ended) { toast('Этот рейс уже закончен.', 'СОХРАНЕНИЕ', true); return; }
+    try { localStorage.setItem(SAVE_KEY, wrapSave(r.state)); } catch (e) { /* играем без записи */ }
+    closeAllModals();
+    continueGame(r.state);
+    toast('Рейс загружен из файла.', 'СОХРАНЕНИЕ');
+  };
+  fr.onerror = () => toast('Не удалось прочитать файл.', 'СОХРАНЕНИЕ', true);
+  fr.readAsText(file);
+}
+
+// попросить у браузера постоянное хранилище, чтобы система не стёрла сохранение
+let storagePersistent = null;
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persisted().then((p) => p || navigator.storage.persist()).then((p) => { storagePersistent = p; }).catch(() => {});
+}
+
+function savesSheet() {
+  const has = (() => { try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; } })();
+  const bak = (() => { try { return !!localStorage.getItem(BAK_KEY); } catch (e) { return false; } })();
+  return `<button class="close" data-act="close">ЗАКРЫТЬ ✕</button>
+    <div class="lbl">МЕНЮ · ДАННЫЕ</div><h2>Сохранения</h2>
+    <div class="fields">
+      <div><span class="lbl">ТЕКУЩИЙ РЕЙС</span>${S && !S.ended ? 'идёт · ' + hm(S.t) + ' · КМ ' + Math.floor(S.odo) : has ? 'есть сохранение' : 'нет'}</div>
+      <div><span class="lbl">АВТОСОХРАНЕНИЕ</span>каждые 5 секунд, с контрольной суммой${bak ? ' · есть резервная копия' : ''}</div>
+      <div><span class="lbl">ХРАНИЛИЩЕ</span>${storagePersistent ? 'постоянное — система не удалит' : 'обычное — установи игру на экран «Домой», чтобы iOS не очистила данные'}</div>
+    </div>
+    <p class="dim">Всё хранится только на этом устройстве, никуда не отправляется. Чтобы перенести рейс или подстраховаться, скачай копию в файл.</p>
+    <div class="btn-grid">
+      <button class="btn primary" data-act="export">СКАЧАТЬ КОПИЮ<small>файл .json</small></button>
+      <button class="btn" data-act="import">ЗАГРУЗИТЬ ИЗ ФАЙЛА<small>проверка целостности</small></button>
+      ${S && !S.ended ? '<button class="btn wide" data-act="to-title">В ГЛАВНОЕ МЕНЮ<small>рейс сохранён</small></button>' : ''}
+    </div>`;
+}
 
 // ---------- тосты / баннер ----------
 function toast(text, who = 'РАЦИЯ', red = false) {
@@ -212,6 +351,7 @@ function handleEvents() {
   }
 }
 
+function isMarked(pid) { return !!(S.marked && S.marked.includes(pid)); }
 function markNew() { S.unread = (S.unread || 0) + 1; }
 
 function morningReport() {
@@ -408,7 +548,7 @@ function personRow(p) {
   const ev = evidenceAgainst(S, p.id).length;
   return `<button class="prow" data-act="person" data-id="${p.id}">
     <div class="ph">${portraitSVG(p, { cold: car.T < 10 ? Math.min(1, (10 - car.T) / 15) : 0 })}</div>
-    <div><div class="nm">${esc(shortName(p))}${p.detained ? '<span class="tag">ЗАДЕРЖАН</span>' : ''}${ev ? `<span class="tag amber">УЛИК ${ev}</span>` : ''}</div>
+    <div><div class="nm">${isMarked(p.id) ? '<span class="amber">⚑ </span>' : ''}${esc(shortName(p))}${p.detained ? '<span class="tag">ЗАДЕРЖАН</span>' : ''}${ev ? `<span class="tag amber">УЛИК ${ev}</span>` : ''}</div>
     <div class="sub">${p.sex}, ${p.age} · м. ${p.seat} · ${esc(p.marks[0])}</div></div>
     <div class="meters"><span title="здоровье"><i style="width:${p.health}%;${p.health < 40 ? 'background:var(--alarm)' : ''}"></i></span><span class="m" title="настроение"><i style="width:${p.mood}%"></i></span></div>
   </button>`;
@@ -434,7 +574,7 @@ function peopleScreen() {
     const cls = c.locked ? '' : ppl.length && c.T < 10 ? 'cold' : ppl.length ? 'live' : '';
     h += `<button class="carcard ${cls}" data-act="pcar" data-n="${c.n}">
       <div class="h"><span>ВАГОН ${c.n}</span><span>${c.locked ? '' : fmtTemp(c.T)}</span></div>
-      <div class="dots">${ppl.map((p) => `<i class="${!p.alive ? 'd' : c.T < 10 ? 'c' : ''}"></i>`).join('')}</div>
+      <div class="dots">${ppl.map((p) => `<i class="${!p.alive ? 'd' : c.T < 10 ? 'c' : ''}${isMarked(p.id) ? ' mk' : ''}"></i>`).join('')}</div>
       ${c.locked ? '<span class="lockic">🔒</span>' : ''}
     </button>`;
   }
@@ -595,7 +735,7 @@ function recSrc(r) {
 function notesScreen() {
   let h = `<div class="scr-head"><span class="num">05</span> · БЛОКНОТ</div>
     <div class="tabs2"><button class="btn ${notesView === 'recs' ? 'primary' : ''}" data-act="nv" data-v="recs">ЗАПИСИ ${S.records.length}</button>
-    <button class="btn ${notesView === 'case' ? 'primary' : ''}" data-act="nv" data-v="case">ДЕЛО</button></div>`;
+    <button class="btn ${notesView === 'case' ? 'primary' : ''}" data-act="nv" data-v="case">ДЕЛО${(S.marked || []).length ? ' · ⚑' + S.marked.length : ''}</button></div>`;
   if (notesView === 'case') return h + caseView();
   h += `<div class="linkbar"><button class="btn ${linkMode ? 'danger' : ''}" data-act="link">${linkMode ? `ВЫБЕРИ 2 ЗАПИСИ (${linkSel.length}/2) · ОТМЕНА` : '🧵 СВЯЗАТЬ НИТЬЮ'}</button><button class="btn ghost" data-act="hint" style="flex:0 0 auto">ПОДСКАЗКА</button></div>`;
   if (S.contras.length) {
@@ -624,14 +764,28 @@ function notesScreen() {
 function caseView() {
   const ids = new Set();
   for (const p of S.people) if (evidenceAgainst(S, p.id).length || p.detained) ids.add(p.id);
-  let h = `<p class="dim">Подозреваемые и улики против них. Полиция в Усть-Куте осудит задержанного, только если против него минимум 2 улики. Задержание невиновного — штраф и статья в газете.</p>`;
+  const marked = (S.marked || []).map((id) => personById(S, id)).filter(Boolean);
+  let h = '';
+  // сомнительные пассажиры — помечены игроком
+  h += `<div class="grp">⚑ СОМНИТЕЛЬНЫЕ · ${marked.length}</div>`;
+  if (!marked.length) h += `<p class="dim">Пока никого. Открой досье пассажира и нажми «Пометить как сомнительного» — он появится здесь, даже если улик ещё нет.</p>`;
+  for (const p of marked) {
+    const ev = evidenceAgainst(S, p.id).length;
+    h += `<div class="mrow"><button class="prow" data-act="person" data-id="${p.id}">
+      <div class="ph">${portraitSVG(p)}</div>
+      <div><div class="nm">${esc(fullName(p))}${p.detained ? '<span class="tag">ЗАДЕРЖАН</span>' : ''}${p.gone ? '<span class="tag">СБЕЖАЛ</span>' : ''}</div>
+      <div class="sub">вагон ${p.car} · м. ${p.seat} · ${esc(p.marks.join(', '))}</div>
+      <div class="sub">улик: <b class="${ev >= 2 ? 'amber' : ''}">${ev}</b> · помечен в ${hm(S.markedAt && S.markedAt[p.id] != null ? S.markedAt[p.id] : S.t)}</div></div></button>
+      <button class="unmark" data-act="mark" data-id="${p.id}" aria-label="Снять пометку">✕</button></div>`;
+  }
+  h += `<div class="grp" style="margin-top:18px">УЛИКИ</div><p class="dim">Полиция в Усть-Куте осудит задержанного, только если против него минимум 2 улики. Задержание невиновного — штраф и статья в газете.</p>`;
   if (!ids.size) h += `<p class="dim">Улик пока нет.</p>`;
   for (const id of ids) {
     const p = personById(S, id);
     const ev = evidenceAgainst(S, id);
     h += `<button class="prow" data-act="person" data-id="${id}" style="margin-top:8px">
       <div class="ph">${portraitSVG(p)}</div>
-      <div><div class="nm">${esc(fullName(p))}${p.detained ? '<span class="tag">ЗАДЕРЖАН</span>' : ''}${p.gone ? '<span class="tag">СБЕЖАЛ</span>' : ''}</div>
+      <div><div class="nm">${isMarked(id) ? '<span class="amber">⚑ </span>' : ''}${esc(fullName(p))}${p.detained ? '<span class="tag">ЗАДЕРЖАН</span>' : ''}${p.gone ? '<span class="tag">СБЕЖАЛ</span>' : ''}</div>
       <div class="sub">вагон ${p.car} · улик: <b class="${ev.length >= 2 ? 'amber' : ''}">${ev.length}</b></div></div></button>`;
     for (const e of ev) h += `<div class="contra" style="border-left-color:${e.type === 'contra' ? 'var(--alarm)' : 'var(--orange)'}">${esc(e.text)}</div>`;
   }
@@ -665,7 +819,7 @@ function dossierSheet(pid, note) {
     const cd = (S.interrogated[pid] || 0) > S.t;
     const night = isNight();
     let h = `<button class="close" data-act="close">ЗАКРЫТЬ ✕</button>
-      <div class="lbl">ДОСЬЕ ${p.detained ? '· <span class="alarm">ЗАДЕРЖАН</span>' : ''}${p.broken ? ' · <span class="amber">ПРИЗНАЛСЯ</span>' : ''}</div>
+      <div class="lbl">ДОСЬЕ ${isMarked(pid) ? '· <span class="amber">⚑ СОМНИТЕЛЬНЫЙ</span> ' : ''}${p.detained ? '· <span class="alarm">ЗАДЕРЖАН</span>' : ''}${p.broken ? ' · <span class="amber">ПРИЗНАЛСЯ</span>' : ''}</div>
       <h2>${esc(p.last)}</h2>
       <div class="dossier">
         <div class="ph">${portraitSVG(p, { cold: car.T < 10 ? Math.min(1, (10 - car.T) / 15) : 0 })}</div>
@@ -693,6 +847,7 @@ function dossierSheet(pid, note) {
       <button class="btn" data-act="inspect" data-id="${pid}">ОСМОТРЕТЬ<small>руки, обувь · ${2 + walk} мин</small></button>
       <button class="btn" data-act="search" data-id="${pid}" ${p.searched ? 'disabled' : ''}>ОБЫСКАТЬ БАГАЖ<small>${p.searched ? 'уже обыскан' : (20 + walk) + ' мин' + (ev.length ? '' : ' · без улик — жалоба')}</small></button>
       ${p.detained ? `<button class="btn" disabled>В СЛУЖЕБНОМ КУПЕ<small>сдадим полиции</small></button>` : `<button class="btn danger" data-act="detain" data-id="${pid}">ЗАДЕРЖАТЬ<small>улик: ${ev.length} · ${5 + walk} мин</small></button>`}
+      <button class="btn wide ${isMarked(pid) ? 'mark-on' : ''}" data-act="mark" data-id="${pid}">${isMarked(pid) ? '⚑ ПОМЕЧЕН КАК СОМНИТЕЛЬНЫЙ' : '⚐ ПОМЕТИТЬ КАК СОМНИТЕЛЬНОГО'}<small>${isMarked(pid) ? 'нажми, чтобы снять пометку' : 'появится в блокноте → дело · 0 мин'}</small></button>
     </div>`;
     return h;
   };
@@ -1032,6 +1187,19 @@ const ACTIONS = {
     modalRender = survivalSheet; rerenderModal(); renderAll(); save();
   },
   thermal: () => { thermal = !thermal; renderAll(); },
+  export: () => exportSave(),
+  import: () => $('#file-import').click(),
+  menu: () => { pause(); openModal(savesSheet); },
+  'to-title': () => { save(); closeAllModals(); setMul(0); S = null; refreshTitle(); $('#title').classList.remove('hidden'); },
+  mark: (d) => {
+    S.marked = S.marked || []; S.markedAt = S.markedAt || {};
+    const p = personById(S, d.id);
+    if (isMarked(d.id)) { S.marked = S.marked.filter((x) => x !== d.id); delete S.markedAt[d.id]; toast(`${shortName(p)}: пометка снята.`, 'БЛОКНОТ'); }
+    else { S.marked.push(d.id); S.markedAt[d.id] = S.t; S.seen = S.seen || []; if (!S.seen.includes(d.id)) S.seen.push(d.id); toast(`${shortName(p)} помечен как сомнительный — смотри блокнот → дело.`, 'БЛОКНОТ'); }
+    save();
+    if (modalRender && !IQ) rerenderModal();
+    renderScreen();
+  },
   station: (d) => openModalOrReplace(stationSheet(+d.id)),
   'route-via': (d) => { planRoute(S, +d.id); toast(`Новый маршрут: через ${WORLD.nodes[+d.id].name}.`, 'ДИСПЕТЧЕР'); closeModal(); save(); },
   'route-reset': () => { planRoute(S); toast('Маршрут: кратчайший до Усть-Куты.', 'ДИСПЕТЧЕР'); if (modalRender) closeModal(); else renderAll(); save(); },
@@ -1226,15 +1394,35 @@ function continueGame(s) {
   toast('Рейс продолжается. Нажми ×1, чтобы пустить время.', 'НАЧАЛЬНИК ПОЕЗДА');
 }
 
-const saved = loadSave();
-if (saved) {
-  $('#btn-continue').hidden = false;
-  $('#btn-continue').onclick = () => { Sound.init(); continueGame(saved); };
+function refreshTitle() {
+  const saved = loadSave();
+  $('#btn-continue').hidden = !saved;
+  $('#btn-continue').onclick = () => {
+    Sound.init();
+    const r = loadSave();
+    if (!r) { refreshTitle(); return; }
+    continueGame(r.state);
+    if (r.restored) toast('Основное сохранение было повреждено — рейс восстановлен из резервной копии.', 'СОХРАНЕНИЕ', true);
+  };
 }
-$('#btn-new').onclick = () => { Sound.init(); newGame(); };
+refreshTitle();
+$('#btn-new').onclick = () => {
+  Sound.init();
+  if (loadSave()) {
+    openModal(() => `<div class="lbl">НОВЫЙ РЕЙС</div><h2>Начать заново?</h2>
+      <p>Текущий рейс будет удалён с устройства. Можно сначала скачать его копию в файл.</p>
+      <div class="btn-grid"><button class="btn" data-act="export">СКАЧАТЬ КОПИЮ</button><button class="btn danger" data-act="new-game">НАЧАТЬ ЗАНОВО</button>
+      <button class="btn ghost wide" data-act="close">ОТМЕНА</button></div>`);
+    return;
+  }
+  newGame();
+};
+$('#btn-saves').onclick = () => openModal(savesSheet);
+$('#file-import').addEventListener('change', (e) => { importSave(e.target.files[0]); e.target.value = ''; });
 $('#btn-how').onclick = () => { openModal(howSheet(0, false)); };
 
 document.addEventListener('visibilitychange', () => { if (document.hidden && S) { save(); if (!S.ended) setMul(0); } });
+window.addEventListener('pagehide', () => { if (S) save(); });
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 
 // ---------- офлайн: service worker хранит игру на устройстве ----------

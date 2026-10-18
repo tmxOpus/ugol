@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
   <title>Уголь</title>
   <meta name="description" content="Детективный симулятор выживания: начальник поезда в зимней тайге.">
   <meta name="theme-color" content="#14213D">
@@ -13,7 +15,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=18">
+  <link rel="stylesheet" href="style.css?v=19">
 </head>
 <body>
 <div id="app">
@@ -43,6 +45,7 @@
       <div class="train-tools">
         <button class="chip" id="btn-thermal">ТЕПЛОВИЗОР</button>
         <button class="chip" id="btn-tambour">ТАМБУРЫ: ОТКРЫТЫ</button>
+        <button class="chip" data-act="menu">☰ МЕНЮ</button>
       </div>
       <div class="train-forecast" id="train-forecast"></div>
       <div class="zoom-tools">
@@ -96,6 +99,8 @@
         <button class="btn primary" id="btn-continue" hidden>ПРОДОЛЖИТЬ РЕЙС</button>
         <button class="btn" id="btn-new">НОВЫЙ РЕЙС</button>
         <button class="btn ghost" id="btn-how">КАК ИГРАТЬ</button>
+        <button class="btn ghost" id="btn-saves">СОХРАНЕНИЯ</button>
+        <input type="file" id="file-import" accept=".json,application/json" hidden>
       </div>
       <div class="lbl foot">ДЕЛО №1 · «УГОЛЬ ИЗ ВАГОНА 9»</div>
       <div class="lbl foot" id="offline-state"></div>
@@ -103,12 +108,12 @@
   </div>
 </div>
 
-<script src="js/world.js?v=18"></script>
-<script src="js/sim.js?v=18"></script>
-<script src="js/gen.js?v=18"></script>
-<script src="js/case.js?v=18"></script>
-<script src="js/audio.js?v=18"></script>
-<script src="js/view.js?v=18"></script>
-<script src="js/ui.js?v=18"></script>
+<script src="js/world.js?v=19"></script>
+<script src="js/sim.js?v=19"></script>
+<script src="js/gen.js?v=19"></script>
+<script src="js/case.js?v=19"></script>
+<script src="js/audio.js?v=19"></script>
+<script src="js/view.js?v=19"></script>
+<script src="js/ui.js?v=19"></script>
 </body>
 </html>

@@ -746,7 +746,17 @@ const View = (() => {
     if (L.hat === 'ushanka' || L.hat === 'knit' || L.hat === 'kerchief') circ(hx, hy, 0.135, head);
     else { ctx.fillStyle = head; ctx.beginPath(); ctx.arc(hx, hy, 0.13, Math.PI * 0.6, Math.PI * 2.4); ctx.fill(); }
     if (p.health < 40) { ctx.strokeStyle = '#8fb3d9'; ctx.lineWidth = 0.04; ctx.beginPath(); ctx.arc(hx, hy, 0.2, 0, 7); ctx.stroke(); }
+    if (S.marked && S.marked.includes(p.id)) {
+      // пометка «сомнительный»: янтарное кольцо и флажок
+      ctx.strokeStyle = '#f5b13d'; ctx.lineWidth = 0.05; ctx.setLineDash([0.08, 0.06]);
+      ctx.beginPath(); ctx.arc(hx, hy, 0.3, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+    }
     const [sx, sy] = local2s(o, hx, hy);
+    if (S.marked && S.marked.includes(p.id) && cam.z > 9000) {
+      setScreen();
+      ctx.font = '700 12px ui-monospace, Menlo, monospace'; ctx.fillStyle = '#f5b13d';
+      ctx.fillText('⚑', sx + 0.3 * cam.z * M, sy - 0.3 * cam.z * M);
+    }
     hits.push({ pid: p.id, sx, sy, r: Math.max(14, 0.4 * cam.z * M) });
   }
   function blanket(p) { const c = ['#5a3a4a', '#3a4a6a', '#6a5a3a', '#3a5a4a', '#5a4a6a']; return c[p.seat % c.length]; }

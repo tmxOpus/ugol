@@ -271,3 +271,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .res-line { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 11.5px; }
 .res-line b { font-weight: 600; }
 .stars { font-size: 34px; letter-spacing: .2em; color: var(--amber); text-shadow: 0 0 14px #f5b13d88; }
+
+/* ---------- пометки «сомнительный» ---------- */
+.btn.mark-on { border-color: var(--amber); color: var(--amber); background: #2a2116; }
+.carcard .dots i.mk { outline: 2px solid var(--orange); outline-offset: 1px; }
+.mrow { display: flex; gap: 6px; align-items: stretch; margin-top: 8px; }
+.mrow .prow { flex: 1; border-color: #5a4210; }
+.unmark { width: 40px; border: 1px solid var(--line); border-radius: 8px; color: var(--dim); font-size: 14px; }
