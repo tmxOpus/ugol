@@ -2,7 +2,7 @@
 // При обновлении игры меняй VERSION (скрипт bump.sh делает это сам вместе с index.html).
 'use strict';
 
-const VERSION = '20';
+const VERSION = '22';
 const CACHE = 'ugol-' + VERSION;
 const ASSETS = [
   './',

@@ -2,6 +2,16 @@
 'use strict';
 
 const $ = (s) => document.querySelector(s);
+// высота приложения: в установленной версии iOS иногда отдаёт слою страницы
+// меньше экрана — тянем на всю высоту, чтобы внизу не было пустой полосы
+function fitAppHeight() {
+  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  const h = standalone ? Math.max(window.innerHeight, screen.height) : window.innerHeight;
+  document.documentElement.style.setProperty('--app-h', h + 'px');
+}
+fitAppHeight();
+window.addEventListener('resize', fitAppHeight);
+window.addEventListener('orientationchange', () => setTimeout(fitAppHeight, 300));
 const SAVE_KEY = 'ugol_save_v2';
 const TIME_SCALE = 3; // реальных секунд на игровую минуту при ×1
 
@@ -175,7 +185,12 @@ function savesSheet() {
   const has = (() => { try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; } })();
   const bak = (() => { try { return !!localStorage.getItem(BAK_KEY); } catch (e) { return false; } })();
   return `<button class="close" data-act="close">ЗАКРЫТЬ ✕</button>
-    <div class="lbl">МЕНЮ · ДАННЫЕ</div><h2>Сохранения</h2>
+    <div class="lbl">МЕНЮ</div><h2>Звук и данные</h2>
+    <div class="btn-grid">
+      <button class="btn ${settings.sound ? 'mark-on' : ''}" data-act="set-sound">ЗВУК: ${settings.sound ? 'ВКЛ' : 'ВЫКЛ'}<small>колёса, ветер, сигналы</small></button>
+      <button class="btn ${settings.music ? 'mark-on' : ''}" data-act="set-music">МУЗЫКА: ${settings.music ? 'ВКЛ' : 'ВЫКЛ'}<small>радио в вагоне</small></button>
+    </div>
+    <div class="grp">СОХРАНЕНИЯ</div>
     <div class="fields">
       <div><span class="lbl">ТЕКУЩИЙ РЕЙС</span>${S && !S.ended ? 'идёт · ' + hm(S.t) + ' · КМ ' + Math.floor(S.odo) : has ? 'есть сохранение' : 'нет'}</div>
       <div><span class="lbl">АВТОСОХРАНЕНИЕ</span>каждые 5 секунд, с контрольной суммой${bak ? ' · есть резервная копия' : ''}</div>
@@ -1008,7 +1023,7 @@ function endSheet() {
 // ---------- обучение ----------
 const HOW = [
   ['Рейс', 'Кедровый Лог → Усть-Кута, около 360 км тайги, ночь, до −43°. Ты — начальник поезда. Довези всех живыми и вовремя (по расписанию — 12:30).'],
-  ['Карта', 'Мир большой: сеть путей, узловые станции, полустанки, разъезды. На вкладке ПОЕЗД двумя пальцами приближай и отдаляй. Кнопка ПОЕЗД держит камеру на составе, кнопка ОСМОТР отпускает её — тогда можно водить картой пальцем. Нажми на станцию, чтобы проложить маршрут через неё — например, за углём. Приблизь свой вагон до упора — увидишь пассажиров и купе сверху.'],
+  ['Карта', 'Мир большой: сеть путей, узловые станции, полустанки, разъезды. На вкладке ПОЕЗД двумя пальцами приближай и отдаляй. Кнопка ПОЕЗД держит камеру на составе, кнопка ОСМОТР отпускает её — тогда можно водить картой пальцем. Нажми на станцию, чтобы проложить маршрут через неё — например, за углём. Приблизь свой вагон до упора — увидишь пассажиров и купе сверху, а в вагоне играет радио.'],
   ['Уголь', 'Тендер локомотива (11 т) — на тягу. Кончится — поезд встанет. В каждом вагоне свой угольный ящик — на отопление. Можно переносить уголь вёдрами туда и обратно.'],
   ['Прогноз', 'Главные цифры наверху: УГОЛЬ НА ХОД и ДО КОНЦА. Если угля меньше, чем пути, цифра красная. Режим ЭКО тратит меньше угля, но едет медленнее.'],
   ['Время', 'Игра идёт сама: на ×1 игровая минута длится 3 секунды, есть ×4 и ×16. Каждое действие стоит времени: допрос — 15 мин, обыск — 20, проход через вагон — 3.'],
@@ -1188,6 +1203,8 @@ const ACTIONS = {
   },
   thermal: () => { thermal = !thermal; renderAll(); },
   export: () => exportSave(),
+  'set-sound': () => { settings.sound = !settings.sound; Sound.init(); applySettings(); rerenderModal(); },
+  'set-music': () => { settings.music = !settings.music; Sound.init(); applySettings(); rerenderModal(); },
   import: () => $('#file-import').click(),
   menu: () => { pause(); openModal(savesSheet); },
   'to-title': () => { save(); closeAllModals(); setMul(0); S = null; refreshTitle(); $('#title').classList.remove('hidden'); },
@@ -1364,9 +1381,34 @@ function frame(ts) {
       View.draw(ts, extra);
     }
     Sound.update(S, isRunning());
+    Sound.music.update(musicLevel());
     if (ts - (S._saved || 0) > 5000) { S._saved = ts; save(); }
   }
 }
+
+// ---------- музыка и настройки звука ----------
+// музыка «радио в купе» слышна, когда камера подлетает к вагону, и громче всего внутри
+function musicLevel() {
+  if (!S || tab !== 'train' || !$('#title').classList.contains('hidden') || document.hidden) return 0;
+  const z = View.cam.z;
+  return Math.max(0, Math.min(1, (Math.log(z) - Math.log(2500)) / (Math.log(9000) - Math.log(2500))));
+}
+const SETTINGS_KEY = 'ugol_settings';
+const settings = (() => {
+  try { const v = JSON.parse(localStorage.getItem(SETTINGS_KEY)); if (v && typeof v === 'object') return { sound: v.sound !== false, music: v.music !== false }; } catch (e) { /* */ }
+  return { sound: true, music: true };
+})();
+function applySettings() {
+  Sound.on = settings.sound;
+  if (Sound.master) Sound.master.gain.value = settings.sound ? 0.8 : 0;
+  Sound.music.on = settings.music;
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { /* */ }
+}
+applySettings();
+document.addEventListener('visibilitychange', () => {
+  if (!Sound.ctx) return;
+  if (document.hidden) Sound.ctx.suspend(); else Sound.ctx.resume();
+});
 
 // ---------- старт ----------
 function newGame() {
